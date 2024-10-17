@@ -3,6 +3,7 @@ package bencode
 import "core:bytes"
 import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:strconv"
 
 // probably don't need a main, but it's here for testing
@@ -22,7 +23,8 @@ main :: proc() {
     }
     r := bytes.Reader{s = data, i = 0, prev_rune = -1}
     result := decode1(&r)
-    fmt.println(result)
+    out := encode1(result)
+    os.write_entire_file("output.txt", out)
 }
 
 Value :: union {
@@ -30,6 +32,22 @@ Value :: union {
 	int,
 	[]Value,
 	map[string]Value,
+}
+
+// TODO: proc overloading instead of switch statement?
+encode1 :: proc(val: Value) -> []u8 {
+    bcode: []u8
+    switch v in val {
+        case string:
+            bcode = encode_string(v)
+        case int:
+            bcode = encode_int(v)
+        case []Value:
+            bcode = encode_list(v)
+        case map[string]Value:
+            bcode = encode_dict(v)
+    }
+    return bcode
 }
 
 decode1 :: proc(input: ^bytes.Reader) -> Value {
@@ -50,6 +68,26 @@ decode1 :: proc(input: ^bytes.Reader) -> Value {
 	}
 
 	return val
+}
+
+encode_dict :: proc(d: map[string]Value) -> []u8 {
+    data: [dynamic]u8
+
+    keys, err := slice.map_keys(d)
+    slice.sort(keys)
+
+    append(&data, 'd')
+
+    for key in keys {
+        k := encode_string(key)
+        append(&data, ..k)
+        v := encode1(d[key])
+        append(&data, ..v)
+    }
+
+    append(&data, 'e')
+
+    return data[:]
 }
 
 decode_dict :: proc(input: ^bytes.Reader) -> map[string]Value {
@@ -82,6 +120,21 @@ decode_dict :: proc(input: ^bytes.Reader) -> map[string]Value {
 	return dict
 }
 
+encode_list :: proc(list: []Value) -> []u8 {
+    data: [dynamic]u8
+
+    append(&data, 'l')
+
+    for value in list {
+        v := encode1(value)
+        append(&data, ..v)
+    }
+
+    append(&data, 'e')
+
+    return data[:]
+}
+
 decode_list :: proc(input: ^bytes.Reader) -> []Value {
 	list := make([dynamic]Value)
 
@@ -107,6 +160,21 @@ decode_list :: proc(input: ^bytes.Reader) -> []Value {
     }
 
 	return list[:]
+}
+
+encode_string :: proc(str: string) -> []u8 {
+    data: [dynamic]u8
+
+    length := len(str)
+    ldata: [20]u8
+    len_str := strconv.itoa(ldata[:], length)
+    append(&data, ..transmute([]u8)len_str[:])
+
+    append(&data, ':')
+
+    append(&data, ..transmute([]u8)str)
+
+    return data[:]
 }
 
 decode_string :: proc(input: ^bytes.Reader) -> string {
@@ -136,6 +204,20 @@ decode_string :: proc(input: ^bytes.Reader) -> string {
     }
 
     return transmute(string)str
+}
+
+encode_int :: proc(i: int) -> []u8 {
+    data: [dynamic]u8
+
+    append(&data, 'i')
+
+    idata: [20]u8
+    i_str := strconv.itoa(idata[:], i)
+    append(&data, ..transmute([]u8)i_str[:])
+
+    append(&data, 'e')
+
+    return data[:]
 }
 
 decode_int :: proc(input: ^bytes.Reader) -> int {
