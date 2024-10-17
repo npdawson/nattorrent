@@ -33,7 +33,7 @@ open :: proc(filename: string) -> Torrent {
     bcode := b.decode1(&reader).(map[string]b.Value)
 
     torrent := Torrent{}
-    torrent.announce = bcode["annouce"].(string)
+    torrent.announce = bcode["announce"].(string)
     url_list: [dynamic]string
     for url in bcode["url-list"].([]b.Value) {
         append(&url_list, url.(string))
