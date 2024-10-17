@@ -1,27 +1,26 @@
 package nattorrent
 
 import "core:bytes"
+import "core:crypto/hash"
 import "core:fmt"
 import "core:os"
+import "core:slice"
 
-import "bencode"
+import b "bencode"
 
 // TODO: implement BitTorrent v2
 Torrent :: struct {
     // TODO: support HTTP seeds extension
     // TODO: support multiple trackers
     // TODO: support DHT - Distributed Hash Tables
-    announce: string, // URL of the tracker
-    url_list: []string, // list of HTTP URLs for HTTP seeds
-    info: TorrentInfo, // info about the file(s)
-}
-
-TorrentInfo :: struct {
     // TODO: support multiple files
+    announce: string, // URL of the tracker
+    info_hash: [20]byte, // hash of the info dict within the torrent file
     length: int, // size of the file in bytes
     name: string, // suggested filename/folder name
     piece_length: int, // bytes per piece
     pieces: [][20]u8, // SHA-1 hashes for each piece
+    url_list: []string, // list of HTTP URLs for HTTP seeds
 }
 
 open :: proc(filename: string) -> Torrent {
@@ -31,28 +30,39 @@ open :: proc(filename: string) -> Torrent {
         return {}
     }
     reader := bytes.Reader{s = data, i = 0, prev_rune = -1}
-    bcode := bencode.decode1(&reader).(map[string]bencode.Value)
+    bcode := b.decode1(&reader).(map[string]b.Value)
 
     torrent := Torrent{}
     torrent.announce = bcode["annouce"].(string)
     url_list: [dynamic]string
-    for url in bcode["url-list"].([]bencode.Value) {
+    for url in bcode["url-list"].([]b.Value) {
         append(&url_list, url.(string))
     }
     torrent.url_list = url_list[:]
-    torrent.info.name = bcode["info"].(map[string]bencode.Value)["name"].(string)
-    torrent.info.length = bcode["info"].(map[string]bencode.Value)["length"].(int)
-    torrent.info.piece_length = bcode["info"].(map[string]bencode.Value)["piece length"].(int)
+    info_map := bcode["info"].(map[string]b.Value)
+    torrent.info_hash = info_hash(info_map)
+    torrent.name = info_map["name"].(string)
+    torrent.length = info_map["length"].(int)
+    torrent.piece_length = info_map["piece length"].(int)
     pieces: [dynamic][20]u8
-    pieces_str := transmute([]u8)bcode["info"].(map[string]bencode.Value)["pieces"].(string)
+    pieces_str := transmute([]u8)info_map["pieces"].(string)
     for i := 0; i < len(pieces_str); i += 20 {
         hash: [20]u8
         copy(hash[:], pieces_str[i:])
         append(&pieces, hash)
     }
-    torrent.info.pieces = pieces[:]
+    torrent.pieces = pieces[:]
 
     return torrent
+}
+
+info_hash :: proc(info: map[string]b.Value) -> [20]byte {
+    binfo := b.encode1(info)
+
+    infohash: [20]byte
+    hash.hash(.Insecure_SHA1, binfo, infohash[:])
+
+    return infohash
 }
 
 main :: proc() {
