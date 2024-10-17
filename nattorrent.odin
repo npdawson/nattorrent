@@ -21,7 +21,7 @@ TorrentInfo :: struct {
     length: int, // size of the file in bytes
     name: string, // suggested filename/folder name
     piece_length: int, // bytes per piece
-    pieces: [][]u8, // SHA-1 hashes for each piece
+    pieces: [][20]u8, // SHA-1 hashes for each piece
 }
 
 open :: proc(filename: string) -> Torrent {
@@ -43,10 +43,12 @@ open :: proc(filename: string) -> Torrent {
     torrent.info.name = bcode["info"].(map[string]bencode.Value)["name"].(string)
     torrent.info.length = bcode["info"].(map[string]bencode.Value)["length"].(int)
     torrent.info.piece_length = bcode["info"].(map[string]bencode.Value)["piece length"].(int)
-    pieces: [dynamic][]u8
+    pieces: [dynamic][20]u8
     pieces_str := transmute([]u8)bcode["info"].(map[string]bencode.Value)["pieces"].(string)
-    for i := 0; i+20 <= len(pieces_str); i += 20 {
-        append(&pieces, pieces_str[i:i+20])
+    for i := 0; i < len(pieces_str); i += 20 {
+        hash: [20]u8
+        copy(hash[:], pieces_str[i:])
+        append(&pieces, hash)
     }
     torrent.info.pieces = pieces[:]
 
