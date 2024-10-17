@@ -66,4 +66,10 @@ info_hash :: proc(info: map[string]b.Value) -> [20]byte {
 }
 
 main :: proc() {
+    torrent_file := os.args[1]
+    torrent := open(torrent_file)
+    for b in torrent.info_hash {
+        fmt.printf("%2x", b)
+    }
+    fmt.println()
 }
