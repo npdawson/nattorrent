@@ -4,8 +4,10 @@ import "core:bytes"
 import "core:crypto/hash"
 import "core:fmt"
 import "core:os"
+import "core:math/rand"
 import "core:slice"
 import "core:strings"
+import "core:strconv"
 
 import b "bencode"
 
@@ -82,11 +84,29 @@ url_encode :: proc(str: string) -> string {
     return strings.to_string(b)
 }
 
+gen_peer_id :: proc() -> string {
+    b := strings.builder_make()
+
+    // 2 letters for client name, 4 digits for version
+    client_id := "-NT0000-"
+    strings.write_string(&b, client_id)
+
+    // generate random bytes for the remainder
+    num_rand_bytes := 20 - len(client_id)
+    for i := 0; i < num_rand_bytes; i += 1 {
+        strings.write_byte(&b, u8(rand.float64()*256))
+    }
+
+    return strings.to_string(b)
+}
+
 main :: proc() {
     torrent_file := os.args[1]
     torrent := open(torrent_file)
     ih_str := transmute(string)torrent.info_hash[:]
     infohash := url_encode(ih_str)
     fmt.println(infohash)
-    fmt.println()
+    peer_id := gen_peer_id()
+    fmt.println(peer_id)
+    fmt.println(url_encode(peer_id))
 }
