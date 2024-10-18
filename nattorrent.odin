@@ -26,6 +26,19 @@ Torrent :: struct {
     url_list: []string, // list of HTTP URLs for HTTP seeds
 }
 
+TrackerRequest :: struct {
+    info_hash: string, // url encoded
+    peer_id: string,   // url encoded
+    port: string,
+    uploaded: int,
+    downloaded: int,
+    compact: bool,
+    left: int,
+    event: Maybe(Event),
+}
+
+Event :: enum{Started, Stopped, Completed}
+
 open :: proc(filename: string) -> Torrent {
     data, ok := os.read_entire_file(filename)
     if !ok {
@@ -100,6 +113,35 @@ gen_peer_id :: proc() -> string {
     return strings.to_string(b)
 }
 
+tracker_url :: proc(torrent: Torrent, request: TrackerRequest) -> string {
+    b := strings.builder_make()
+
+    strings.write_string(&b, torrent.announce)
+    strings.write_rune(&b, '?')
+    event: string
+    switch request.event {
+        case .Started:
+            event = "started"
+        case .Stopped:
+            event = "stopped"
+        case .Completed:
+            event = "completed"
+        case:
+            event = ""
+    }
+    params := strings.concatenate({
+        "info_hash=", request.info_hash, "&",
+        "peer_id=", request.peer_id, "&",
+        "port=", request.port, "&",
+        "uploaded=", fmt.tprint(request.uploaded), "&",
+        "downloaded=", fmt.tprint(request.downloaded), "&",
+        "left=", fmt.tprint(request.left), "&",
+        "compact=", "1" if request.compact else "0", "&",
+        "event=", event})
+    strings.write_string(&b, params)
+    return strings.to_string(b)
+}
+
 main :: proc() {
     torrent_file := os.args[1]
     torrent := open(torrent_file)
@@ -109,4 +151,9 @@ main :: proc() {
     peer_id := gen_peer_id()
     fmt.println(peer_id)
     fmt.println(url_encode(peer_id))
+    tracker_req := TrackerRequest{info_hash = infohash, peer_id = url_encode(peer_id),
+                                  port = "6881", uploaded = 0, downloaded = 0,
+                                  left = torrent.length, compact = true, event = .Started}
+    url := tracker_url(torrent, tracker_req)
+    fmt.println(url)
 }
