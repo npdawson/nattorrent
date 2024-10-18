@@ -5,6 +5,7 @@ import "core:crypto/hash"
 import "core:fmt"
 import "core:os"
 import "core:slice"
+import "core:strings"
 
 import b "bencode"
 
@@ -65,11 +66,27 @@ info_hash :: proc(info: map[string]b.Value) -> [20]byte {
     return infohash
 }
 
+url_encode :: proc(str: string) -> string {
+    b := strings.builder_make(len(str)+16)
+    for i in 0..<len(str) {
+        switch str[i] {
+            case '0'..='9', 'a'..='z', 'A'..='Z', '.', '-', '_', '~':
+                strings.write_byte(&b, str[i])
+            case:
+                buf: [2]u8
+                t := strconv.append_int(buf[:], i64(str[i]), 16)
+                strings.write_byte(&b, '%')
+                strings.write_string(&b, t)
+        }
+    }
+    return strings.to_string(b)
+}
+
 main :: proc() {
     torrent_file := os.args[1]
     torrent := open(torrent_file)
-    for b in torrent.info_hash {
-        fmt.printf("%2x", b)
-    }
+    ih_str := transmute(string)torrent.info_hash[:]
+    infohash := url_encode(ih_str)
+    fmt.println(infohash)
     fmt.println()
 }
