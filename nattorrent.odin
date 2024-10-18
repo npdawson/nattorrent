@@ -37,6 +37,26 @@ TrackerRequest :: struct {
     event: Maybe(Event),
 }
 
+TrackerResponse :: struct {
+    failure_reason: string,
+    warning: string,
+    interval: int,
+    min_interval: int,
+    tracker_id: string,
+    complete: int, // number of seeders
+    incomplete: int, // number of leechers
+    peers: []Peer,
+}
+
+Peer :: struct {
+    ip: string,
+    port: string,
+    am_choking: bool,
+    am_interested: bool,
+    peer_choking: bool,
+    peer_interested: bool,
+}
+
 Event :: enum{Started, Stopped, Completed}
 
 open :: proc(filename: string) -> Torrent {
