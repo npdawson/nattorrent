@@ -70,12 +70,18 @@ open :: proc(filename: string) -> Torrent {
     bcode := b.decode1(&reader).(map[string]b.Value)
 
     torrent := Torrent{}
-    torrent.announce = bcode["announce"].(string)
-    url_list: [dynamic]string
-    for url in bcode["url-list"].([]b.Value) {
-        append(&url_list, url.(string))
+    if bcode["announce"] == nil {
+        fmt.println("no announce url")
+        return torrent
     }
-    torrent.url_list = url_list[:]
+    torrent.announce = bcode["announce"].(string)
+    if bcode["url-list"] != nil {
+        url_list: [dynamic]string
+        for url in bcode["url-list"].([]b.Value) {
+            append(&url_list, url.(string))
+        }
+        torrent.url_list = url_list[:]
+    }
     info_map := bcode["info"].(map[string]b.Value)
     torrent.info_hash = info_hash(info_map)
     torrent.name = info_map["name"].(string)
@@ -178,6 +184,7 @@ parse_hostname_and_port :: proc(announce: string) -> (host: string, target: stri
 main :: proc() {
     torrent_file := os.args[1]
     torrent := open(torrent_file)
+    if torrent.announce == "" do return
     ih_str := transmute(string)torrent.info_hash[:]
     infohash := url_encode(ih_str)
     //fmt.println(infohash)
