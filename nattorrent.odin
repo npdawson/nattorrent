@@ -3,6 +3,7 @@ package nattorrent
 import "core:bytes"
 import "core:crypto/hash"
 import "core:fmt"
+import "core:net"
 import "core:os"
 import "core:math/rand"
 import "core:slice"
@@ -102,7 +103,7 @@ info_hash :: proc(info: map[string]b.Value) -> [20]byte {
 }
 
 url_encode :: proc(str: string) -> string {
-    b := strings.builder_make(len(str)+16)
+    b := strings.builder_make()
     for i in 0..<len(str) {
         switch str[i] {
             case '0'..='9', 'a'..='z', 'A'..='Z', '.', '-', '_', '~':
@@ -162,18 +163,55 @@ tracker_url :: proc(torrent: Torrent, request: TrackerRequest) -> string {
     return strings.to_string(b)
 }
 
+get_string :: proc(url: string) -> string {
+    host, target := parse_hostname_and_port(url)
+    return strings.concatenate({"GET /", target, " HTTP/1.1\r\n",
+                                "Host: ", host, "\r\n",
+                                "\r\n"})
+}
+
+parse_hostname_and_port :: proc(announce: string) -> (host: string, target: string) {
+    strs, err := strings.split_n(announce, "/", 4)
+    return strs[2], strs[3]
+}
+
 main :: proc() {
     torrent_file := os.args[1]
     torrent := open(torrent_file)
     ih_str := transmute(string)torrent.info_hash[:]
     infohash := url_encode(ih_str)
-    fmt.println(infohash)
-    peer_id := gen_peer_id()
-    fmt.println(peer_id)
-    fmt.println(url_encode(peer_id))
-    tracker_req := TrackerRequest{info_hash = infohash, peer_id = url_encode(peer_id),
+    //fmt.println(infohash)
+    peer_id := url_encode(gen_peer_id())
+    //fmt.println(peer_id)
+    tracker_req := TrackerRequest{info_hash = infohash, peer_id = peer_id,
                                   port = "6881", uploaded = 0, downloaded = 0,
                                   left = torrent.length, compact = true, event = .Started}
     url := tracker_url(torrent, tracker_req)
-    fmt.println(url)
+    //fmt.println(url)
+
+    // connect to tracker
+    host, target := parse_hostname_and_port(torrent.announce)
+    ep4, err := net.resolve_ip4(host)
+    socket, err2 := net.dial_tcp(ep4)
+
+    // build request message
+    req_str := get_string(url)
+    //fmt.println(req_str)
+    req := transmute([]u8)req_str
+
+    // send GET request
+    bytes, err3 := net.send(socket, req)
+
+    // get response
+    response: [1000]byte
+    bytes, err3 = net.recv(socket, response[:])
+    fmt.println(transmute(string)response[:bytes])
+
+    // when stopping, inform the tracker
+    tracker_req.event = .Stopped
+    url = tracker_url(torrent, tracker_req)
+    req_str = get_string(url)
+    req = transmute([]u8)req_str
+    bytes, err3 = net.send(socket, req)
+    net.close(socket)
 }
