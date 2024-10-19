@@ -1,6 +1,7 @@
 package nattorrent
 
 import "core:crypto/hash"
+import "core:encoding/endian"
 import "core:fmt"
 import "core:mem"
 import "core:net"
@@ -11,6 +12,24 @@ import "core:strings"
 import "core:strconv"
 
 import b "../bencode"
+
+messageID :: distinct u8
+
+MsgChoke:         messageID : 0
+MsgUnchoke:       messageID : 1
+MsgInterested:    messageID : 2
+MsgNotInterested: messageID : 3
+MsgHave:          messageID : 4
+MsgBitfield:      messageID : 5
+MsgRequest:       messageID : 6
+MsgPiece:         messageID : 7
+MsgCancel:        messageID : 8
+MsgPort:          messageID : 9
+
+Message :: struct {
+    ID: messageID,
+    payload: []byte,
+}
 
 // TODO: implement BitTorrent v2
 Torrent :: struct {
@@ -28,8 +47,8 @@ Torrent :: struct {
 }
 
 TrackerRequest :: struct {
-    info_hash: string, // url encoded
-    peer_id: string,   // url encoded
+    info_hash: string,
+    peer_id: string,
     port: string,
     uploaded: int,
     downloaded: int,
@@ -68,7 +87,6 @@ open :: proc(filename: string) -> Torrent {
         return {}
     }
     bcode := b.decode(data, context.temp_allocator).(map[string]b.Value)
-    defer free_all(context.temp_allocator)
 
     torrent := Torrent{}
     assert(bcode["announce"] != nil)
@@ -106,8 +124,8 @@ info_hash :: proc(info: map[string]b.Value) -> [20]byte {
     return infohash
 }
 
-url_encode :: proc(str: string) -> string {
-    b := strings.builder_make()
+url_encode :: proc(str: string, allocator := context.allocator) -> string {
+    b := strings.builder_make(allocator = allocator)
     for i in 0..<len(str) {
         switch str[i] {
             case '0'..='9', 'a'..='z', 'A'..='Z', '.', '-', '_', '~':
@@ -122,8 +140,8 @@ url_encode :: proc(str: string) -> string {
     return strings.to_string(b)
 }
 
-gen_peer_id :: proc() -> string {
-    b := strings.builder_make()
+gen_peer_id :: proc(allocator := context.allocator) -> string {
+    b := strings.builder_make(allocator = allocator)
 
     // 2 letters for client name, 4 digits for version
     client_id := "-NT0000-"
@@ -138,8 +156,8 @@ gen_peer_id :: proc() -> string {
     return strings.to_string(b)
 }
 
-tracker_url :: proc(torrent: Torrent, request: TrackerRequest) -> string {
-    b := strings.builder_make()
+tracker_url :: proc(torrent: Torrent, request: TrackerRequest, allocator := context.allocator) -> string {
+    b := strings.builder_make(allocator = allocator)
 
     strings.write_string(&b, torrent.announce)
     strings.write_rune(&b, '?')
@@ -155,15 +173,14 @@ tracker_url :: proc(torrent: Torrent, request: TrackerRequest) -> string {
             event = ""
     }
     params := strings.concatenate({
-        "info_hash=", request.info_hash, "&",
-        "peer_id=", request.peer_id, "&",
+        "info_hash=", url_encode(request.info_hash, allocator = allocator), "&",
+        "peer_id=", url_encode(request.peer_id, allocator = allocator), "&",
         "port=", request.port, "&",
         "uploaded=", fmt.tprint(request.uploaded), "&",
         "downloaded=", fmt.tprint(request.downloaded), "&",
         "left=", fmt.tprint(request.left), "&",
         "compact=", "1" if request.compact else "0", "&",
-        "event=", event})
-    defer delete(params)
+        "event=", event}, allocator = context.temp_allocator)
     strings.write_string(&b, params)
     return strings.to_string(b)
 }
@@ -178,6 +195,9 @@ get_string :: proc(url: string) -> string {
 parse_hostname_and_port :: proc(announce: string) -> (host: string, target: string) {
     strs, err := strings.split_n(announce, "/", 4)
     defer delete(strs)
+    if len(strs) != 4 {
+        fmt.println("error parsing hostname from announce:", err, strs)
+    }
     return strs[2], strs[3]
 }
 
@@ -189,7 +209,6 @@ parse_response :: proc(res: []byte) -> TrackerResponse {
     }
     data := transmute([]byte)strs[1]
     r := b.decode(data, context.temp_allocator).(map[string]b.Value)
-    defer free_all(context.temp_allocator)
     tr: TrackerResponse
     tr.interval = r["interval"].(int)
     tr.peers = parse_peers(r["peers"].(string))
@@ -231,6 +250,71 @@ parse_peer :: proc(peer: []byte) -> Peer {
     return p
 }
 
+gen_handshake :: proc(tracker_req: TrackerRequest) -> []byte {
+    handshake: [dynamic]byte
+
+    pstr := "BitTorrent protocol"
+    pstr_len := cast(byte)len(pstr)
+    extensions: [8]byte = {0, 0, 0, 0, 0, 0, 0, 0}
+
+    append(&handshake, pstr_len)
+    append(&handshake, pstr)
+    append(&handshake, transmute(string)extensions[:])
+    append(&handshake, tracker_req.info_hash)
+    append(&handshake, tracker_req.peer_id)
+
+    return handshake[:]
+}
+
+parse_handshake :: proc(hs: []byte) -> (infohash: string, peerid: string, err: string) {
+    pstr_len := hs[0]
+    pstr_end := pstr_len + 1
+    pstr := transmute(string)hs[1:pstr_end]
+    if strings.compare(pstr, "BitTorrent protocol") != 0 {
+        err = fmt.tprintf("Incorrect protocol:", pstr)
+        return
+    }
+    ext_end := pstr_end + 8
+    extensions := hs[pstr_end:ext_end]
+    ih_end := ext_end + 20
+    infohash = transmute(string)hs[ext_end:ih_end]
+    peerid = transmute(string)hs[ih_end:ih_end+20]
+    return
+}
+
+gen_msg :: proc(id: messageID, payload: []byte) -> []byte {
+    msg: [dynamic]byte
+
+    length: u32 = cast(u32)len(payload) + 1
+    len_bytes: [4]byte
+    ok := endian.put_u32(len_bytes[:], .Big, length)
+    append_elems(&msg, ..len_bytes[:])
+
+    append(&msg, cast(byte)id)
+
+    append_elems(&msg, ..payload)
+
+    return msg[:]
+}
+
+parse_msg :: proc(data: []byte) -> (msg: Message, err: string) {
+    length, ok := endian.get_u32(data[:4], .Big)
+    if length == 0 {
+        // how to handle keepalive message type?
+        return
+    }
+    if !ok {
+        err = "couldn't read msg length"
+        return
+    }
+    remainder := data[4:]
+    msg.ID = cast(messageID)remainder[0]
+    if length > 1 {
+        msg.payload = remainder[1:length]
+    }
+    return
+}
+
 free_torrent :: proc(torrent: Torrent) {
     delete(torrent.pieces)
     delete(torrent.url_list)
@@ -260,61 +344,69 @@ main :: proc() {
 		}
     }
 
+    quit := false
+
     torrent_file := os.args[1]
     torrent := open(torrent_file)
     defer free_torrent(torrent)
     if torrent.announce == "" do return
     ih_str := transmute(string)torrent.info_hash[:]
-    infohash := url_encode(ih_str)
-    defer delete(infohash)
-    //fmt.println(infohash)
-    peer_id := gen_peer_id()
-    defer delete(peer_id)
-    //fmt.println(peer_id)
-    tracker_req := TrackerRequest{info_hash = infohash, peer_id = url_encode(peer_id),
+    peer_id := gen_peer_id(allocator = context.temp_allocator)
+    tracker_req := TrackerRequest{info_hash = ih_str, peer_id = peer_id,
                                   port = "6881", uploaded = 0, downloaded = 0,
                                   left = torrent.length, compact = true, event = .Started}
-    defer delete(tracker_req.peer_id)
     url := tracker_url(torrent, tracker_req)
     defer delete(url)
-    //fmt.println(url)
 
-    //// connect to tracker
-    //host, target := parse_hostname_and_port(torrent.announce)
-    //ep4, err := net.resolve_ip4(host)
-    //socket, err2 := net.dial_tcp(ep4)
-    //defer net.close(socket)
+    // handshake to send peers upon connecting
+    handshake := gen_handshake(tracker_req)
+    defer delete(handshake)
+
+    // // connect to tracker
+    // host, target := parse_hostname_and_port(torrent.announce)
+    // ep4, err := net.resolve_ip4(host)
+    // socket, err2 := net.dial_tcp(ep4)
+    // defer net.close(socket)
     //
-    //// build request message
-    //req_str := get_string(url)
-    ////fmt.println(req_str)
-    //req := transmute([]u8)req_str
+    // // build request message
+    // req_str := get_string(url)
+    // defer delete(req_str)
+    // //fmt.println(req_str)
+    // req := transmute([]u8)req_str
     //
-    //// send GET request
-    //bytes, err3 := net.send(socket, req)
+    // // send GET request
+    // bytes, err3 := net.send_tcp(socket, req)
     //
-    //// get response
-    //response: [1000]byte
-    //bytes, err3 = net.recv(socket, response[:])
-    //if bytes == 0 {
-    //    fmt.println("Response err: ", err3)
-    //} else {
-    //    fmt.println(transmute(string)response[:bytes])
+    // // get response
+    // response: [1000]byte
+    // bytes, err3 = net.recv_tcp(socket, response[:])
+    // if bytes == 0 || err3 != nil {
+    //     fmt.println("Response err: ", err3)
+    //     quit = true
+    // } else {
+    //     // fmt.println(transmute(string)response[:bytes])
     //
-    //    // parse and print response
-    //    r := parse_response(response[:bytes])
-    //    fmt.println("Interval: ", r.interval, " seconds")
-    //    for peer in r.peers {
-    //        fmt.println(peer.ip, ":", peer.port, sep="")
-    //    }
-    //}
+    //     // parse and print interval and peer list
+    //     r := parse_response(response[:bytes])
+    //     defer delete(r.peers)
+    //     fmt.println("Interval: ", r.interval, " seconds")
+    //     for peer in r.peers {
+    //         fmt.println(peer.ip, ":", peer.port, sep="")
+    //     }
+    // }
     //
-    //// when stopping, inform the tracker
-    //tracker_req.event = .Stopped
-    //url = tracker_url(torrent, tracker_req)
-    //req_str = get_string(url)
-    //req = transmute([]u8)req_str
-    //bytes, err3 = net.send(socket, req)
+    // // event loop
+    // for !quit {
+    //
+    // }
+
+    // when stopping, inform the tracker
+    // tracker_req.event = .Stopped
+    // url = tracker_url(torrent, tracker_req, allocator = context.temp_allocator)
+    // delete(req_str)
+    // req_str = get_string(url)
+    // req = transmute([]u8)req_str
+    // bytes, err3 = net.send(socket, req)
 
     free_all(context.temp_allocator)
 }
