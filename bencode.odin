@@ -179,6 +179,7 @@ encode_string :: proc(str: string) -> []u8 {
 
 decode_string :: proc(input: ^bytes.Reader) -> string {
     length_str: [dynamic]u8
+    defer delete(length_str)
 
     next, err := bytes.reader_read_byte(input)
     if err != .None {
