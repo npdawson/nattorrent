@@ -175,8 +175,8 @@ tracker_url :: proc(torrent: Torrent, request: TrackerRequest, allocator := cont
             event = ""
     }
     params := strings.concatenate({
-        "info_hash=", url_encode(request.info_hash, allocator = allocator), "&",
-        "peer_id=", url_encode(request.peer_id, allocator = allocator), "&",
+        "info_hash=", url_encode(request.info_hash, allocator = context.temp_allocator), "&",
+        "peer_id=", url_encode(request.peer_id, allocator = context.temp_allocator), "&",
         "port=", request.port, "&",
         "uploaded=", fmt.tprint(request.uploaded), "&",
         "downloaded=", fmt.tprint(request.downloaded), "&",
