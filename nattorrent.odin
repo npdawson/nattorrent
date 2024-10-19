@@ -181,6 +181,55 @@ parse_hostname_and_port :: proc(announce: string) -> (host: string, target: stri
     return strs[2], strs[3]
 }
 
+parse_response :: proc(res: []byte) -> TrackerResponse {
+    strs, err := strings.split(transmute(string)res, "\r\n\r\n")
+    if len(strs) < 2 {
+        return {}
+    }
+    data := transmute([]byte)strs[1]
+    reader := bytes.Reader{s = data, i = 0, prev_rune = -1}
+    r := b.decode1(&reader).(map[string]b.Value)
+    tr: TrackerResponse
+    tr.interval = r["interval"].(int)
+    tr.peers = parse_peers(r["peers"].(string))
+    return tr
+}
+
+parse_peers :: proc(peers_str: string) -> []Peer {
+    peers: [dynamic]Peer
+
+    if len(peers_str) % 6 != 0 {
+        fmt.println("peers format error")
+        return {}
+    }
+    peers_bytes := transmute([]byte)peers_str
+    for i := 0; i < len(peers_bytes); i += 6 {
+        p := parse_peer(peers_bytes[i:i+6])
+        append(&peers, p)
+    }
+
+    if len(peers) != len(peers_bytes) / 6 {
+        fmt.println("error parsing peers: number parsed:", len(peers), "Number sent:", len(peers_bytes) / 6)
+    }
+
+    return peers[:]
+}
+
+parse_peer :: proc(peer: []byte) -> Peer {
+    p: Peer
+    if len(peer) != 6 {
+        fmt.println("peer needs to be a 6 byte slice. length: ", len(peer))
+        return p
+    }
+    p.ip = fmt.tprintf("%d.%d.%d.%d", peer[0], peer[1], peer[2], peer[3])
+    p.port = fmt.tprintf("%d", cast(u16)peer[4] * 0x100 + cast(u16)peer[5])
+    p.am_choking = true
+    p.am_interested = false
+    p.peer_choking = true
+    p.peer_interested = false
+    return p
+}
+
 main :: proc() {
     torrent_file := os.args[1]
     torrent := open(torrent_file)
@@ -212,7 +261,18 @@ main :: proc() {
     // get response
     response: [1000]byte
     bytes, err3 = net.recv(socket, response[:])
-    fmt.println(transmute(string)response[:bytes])
+    if bytes == 0 {
+        fmt.println("Response err: ", err3)
+    } else {
+        fmt.println(transmute(string)response[:bytes])
+
+        // parse and print response
+        r := parse_response(response[:bytes])
+        fmt.println("Interval: ", r.interval, " seconds")
+        for peer in r.peers {
+            fmt.println(peer.ip, ":", peer.port, sep="")
+        }
+    }
 
     // when stopping, inform the tracker
     tracker_req.event = .Stopped
