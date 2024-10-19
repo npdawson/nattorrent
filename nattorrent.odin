@@ -31,6 +31,8 @@ Message :: struct {
     payload: []byte,
 }
 
+BitField :: distinct []byte
+
 // TODO: implement BitTorrent v2
 Torrent :: struct {
     // TODO: support HTTP seeds extension
@@ -313,6 +315,18 @@ parse_msg :: proc(data: []byte) -> (msg: Message, err: string) {
         msg.payload = remainder[1:length]
     }
     return
+}
+
+has_piece :: proc(bf: BitField, index: uint) -> bool {
+    byte_index := index / 8
+    offset := index % 8
+    return bf[byte_index]>>(7-offset)&1 != 0
+}
+
+set_piece :: proc(bf: ^BitField, index: uint) {
+    byte_index := index / 8
+    offset := index % 8
+    bf[byte_index] |= (1 << (7 - offset))
 }
 
 free_torrent :: proc(torrent: Torrent) {
