@@ -1,6 +1,5 @@
 package nattorrent
 
-import "core:bytes"
 import "core:crypto/hash"
 import "core:fmt"
 import "core:mem"
@@ -68,9 +67,8 @@ open :: proc(filename: string) -> Torrent {
         fmt.println("read file failed")
         return {}
     }
-    reader := bytes.Reader{s = data, i = 0, prev_rune = -1}
-    bcode := b.decode1(&reader).(map[string]b.Value)
-    defer delete(bcode)
+    bcode := b.decode(data, context.temp_allocator).(map[string]b.Value)
+    defer free_all(context.temp_allocator)
 
     torrent := Torrent{}
     assert(bcode["announce"] != nil)
@@ -100,8 +98,7 @@ open :: proc(filename: string) -> Torrent {
 }
 
 info_hash :: proc(info: map[string]b.Value) -> [20]byte {
-    binfo := b.encode1(info)
-    defer delete(binfo)
+    binfo := b.encode1(info, context.temp_allocator)
 
     infohash: [20]byte
     hash.hash(.Insecure_SHA1, binfo, infohash[:])
@@ -191,9 +188,8 @@ parse_response :: proc(res: []byte) -> TrackerResponse {
         return {}
     }
     data := transmute([]byte)strs[1]
-    reader := bytes.Reader{s = data, i = 0, prev_rune = -1}
-    r := b.decode1(&reader).(map[string]b.Value)
-    defer delete(r)
+    r := b.decode(data, context.temp_allocator).(map[string]b.Value)
+    defer free_all(context.temp_allocator)
     tr: TrackerResponse
     tr.interval = r["interval"].(int)
     tr.peers = parse_peers(r["peers"].(string))
@@ -236,9 +232,7 @@ parse_peer :: proc(peer: []byte) -> Peer {
 }
 
 free_torrent :: proc(torrent: Torrent) {
-    delete(torrent.name)
     delete(torrent.pieces)
-    delete(torrent.announce)
     delete(torrent.url_list)
 }
 
