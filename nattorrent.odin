@@ -35,11 +35,11 @@ BitField :: distinct []byte
 
 // TODO: implement BitTorrent v2
 Torrent :: struct {
-    // TODO: support HTTP seeds extension
-    // TODO: support multiple trackers
+    // TODO: support webseeding extension
     // TODO: support DHT - Distributed Hash Tables
     // TODO: support multiple files
     announce: string, // URL of the tracker
+    announce_list: []string,
     info_hash: [20]byte, // hash of the info dict within the torrent file
     length: int, // size of the file in bytes
     name: string, // suggested filename/folder name
@@ -91,8 +91,16 @@ open :: proc(filename: string) -> Torrent {
     bcode := b.decode(data, context.temp_allocator).(map[string]b.Value)
 
     torrent := Torrent{}
-    assert(bcode["announce"] != nil)
-    torrent.announce = bcode["announce"].(string)
+    if bcode["announce"] != nil {
+        torrent.announce = bcode["announce"].(string)
+    }
+    if bcode["announce-list"] != nil {
+        announce_list: [dynamic]string
+        for announce in bcode["announce-list"].([]b.Value) {
+            append(&announce_list, announce.(string))
+        }
+        torrent.announce_list = announce_list[:]
+    }
     if bcode["url-list"] != nil {
         url_list: [dynamic]string
         for url in bcode["url-list"].([]b.Value) {
