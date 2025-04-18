@@ -11,14 +11,14 @@ Torrent :: struct {
 	// TODO: support webseeding extension
 	// TODO: support DHT - Distributed Hash Tables
 	// TODO: support multiple files
-	announce:	   string, // URL of the tracker
-	announce_list: []string,
-	info_hash:	   [20]byte, // hash of the info dict within the torrent file
-	length:		   int, // size of the file in bytes
-	name:		   string, // suggested filename/folder name
+	announce:      string, // URL of the tracker
+	announce_list: [][]string,
+	info_hash:     [20]byte, // hash of the info dict within the torrent file
+	length:        int, // size of the file in bytes
+	name:          string, // suggested filename/folder name
 	piece_length:  int, // bytes per piece
-	pieces:		   [][20]u8, // SHA-1 hashes for each piece
-	url_list:	   []string, // list of HTTP URLs for HTTP seeds
+	pieces:        [][20]u8, // SHA-1 hashes for each piece
+	url_list:      []string, // list of HTTP URLs for HTTP seeds
 }
 
 open_file :: proc(filename: string) -> Torrent {
@@ -35,14 +35,17 @@ open_file :: proc(filename: string) -> Torrent {
 		torrent.announce = bcode["announce"].(string)
 	}
 	// TODO : reimplement properly, list of list of strings, tiers
-	// if bcode["announce-list"] != nil {
-	//	   announce_list: [dynamic]string
-	//	   fmt.println(bcode["announce-list"].([]b.Value))
-	//	   for announce in bcode["announce-list"].([]b.Value) {
-	//		   append(&announce_list, announce.(string))
-	//	   }
-	//	   torrent.announce_list = announce_list[:]
-	// }
+	if bcode["announce-list"] != nil {
+		announce_list: [dynamic][]string
+		for tier in bcode["announce-list"].([]b.Value) {
+			tier_list: [dynamic]string
+			for announce in tier.([]b.Value) {
+				append(&tier_list, announce.(string))
+			}
+			append(&announce_list, tier_list[:])
+		}
+		torrent.announce_list = announce_list[:]
+	}
 	if bcode["url-list"] != nil {
 		url_list: [dynamic]string
 		for url in bcode["url-list"].([]b.Value) {

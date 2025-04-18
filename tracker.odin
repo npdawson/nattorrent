@@ -61,16 +61,17 @@ url_encode :: proc(str: string, allocator := context.allocator) -> string {
 }
 
 tracker_init :: proc(torrent: ^Torrent) -> (tracker: Tracker, err: net.Network_Error) {
-	// TODO: handle HTTPS/SSL
-	host, path: string
-	if torrent.announce != "" {
-		host, path = parse_host_and_path(torrent.announce)
-	} else if torrent.announce_list != nil {
+	tracker_url: string
+	if torrent.announce_list != nil {
 		// TODO: handle all urls in announce-list
-		host, path = parse_host_and_path(torrent.announce_list[0])
+		tracker_url = torrent.announce_list[0][0]
+	} else if torrent.announce != "" {
+		tracker_url = torrent.announce
 	} else {
 		panic("no announce urls")
 	}
+	// TODO: handle HTTPS/SSL
+	protocol, host, path, _, _ := net.split_url(tracker_url)
 	tracker.path = path
 	endpoint := net.resolve_ip4(host) or_return
 	// do I need to keep the endpoint after connecting?
