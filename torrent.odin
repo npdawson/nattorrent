@@ -70,17 +70,6 @@ open_file :: proc(filename: string) -> Torrent {
 	return torrent
 }
 
-parse_host_and_path :: proc(announce: string) -> (host: string, target: string) {
-	strs, err := strings.split_n(announce, "/", 4)
-	defer delete(strs)
-	// only support HTTP currently
-	assert(strings.compare(strs[0], "http:") == 0)
-	if len(strs) != 4 {
-		fmt.println("error parsing hostname from announce:", err, strs)
-	}
-	return strs[2], strs[3]
-}
-
 torrent_destroy :: proc(torrent: Torrent) {
 	delete(torrent.pieces)
 	delete(torrent.url_list)
