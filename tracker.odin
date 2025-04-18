@@ -70,7 +70,7 @@ tracker_init :: proc(torrent: ^Torrent) -> (tracker: Tracker, err: net.Network_E
 	tracker.port = "6881"
 	tracker.uploaded = 0
 	tracker.downloaded = 0
-	tracker.left = torrent.length
+	tracker.left = torrent.length - tracker.downloaded
 	tracker.state = .Started
 
 	return
