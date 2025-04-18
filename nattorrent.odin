@@ -28,7 +28,6 @@ main :: proc() {
 		}
 	}
 
-	// load torrent file
 	if len(os.args) == 1 {
 		fmt.eprintln("Please specify a torrent file.")
 	} else if len(os.args) > 2 {
@@ -37,7 +36,6 @@ main :: proc() {
 		torrent_file := os.args[1]
 		torrent := open_file(torrent_file)
 		defer torrent_destroy(torrent)
-		if torrent.announce == "" do return // only support single announce
 
 		tracker, err := tracker_init(&torrent)
 		defer tracker_destroy(tracker)
