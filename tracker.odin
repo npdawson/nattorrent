@@ -70,10 +70,15 @@ tracker_init :: proc(torrent: ^Torrent) -> (tracker: Tracker, err: net.Network_E
 	} else {
 		panic("no announce urls")
 	}
-	// TODO: handle HTTPS/SSL
 	protocol, host, path, _, _ := net.split_url(tracker_url)
+	// TODO: handle HTTPS/SSL
+	if protocol != "http" {
+		fmt.eprintln("unsupported protocol: ", protocol)
+		panic("could not initialize tracker")
+	}
 	tracker.path = path
 	endpoint := net.resolve_ip4(host) or_return
+	if endpoint.port == 0 { endpoint.port = 80 }
 	// do I need to keep the endpoint after connecting?
 	tracker.socket = net.dial_tcp(endpoint) or_return
 	tracker.info_hash = transmute(string)torrent.info_hash[:]
@@ -152,22 +157,32 @@ tracker_announce :: proc(tracker: ^Tracker) {
 tracker_response :: proc(tracker: ^Tracker) {
 	response: [1000]byte
 	bytes, err := net.recv_tcp(tracker.socket, response[:])
-	if bytes == 0 do return
-	// for bytes == 0 {
-	//	   //try again? is this the right thing to do?
-	//	   bytes, err = net.recv_tcp(tracker.socket, response[:])
-	// }
 	if err != nil {
 		fmt.println("Response err: ", err)
 		panic("error receiving response from tracker")
 	}
-	strs, _ := strings.split(transmute(string)response[:bytes], "\r\n\r\n")
+	if bytes == 0 do return
+	strs, _ := strings.split(transmute(string)response[:bytes], "\r\n")
 	defer delete(strs)
-	if len(strs) < 2 {
+	length := len(strs)
+	// check for HTTP response
+	statusline := strings.split(strs[0], " ")
+	defer delete(statusline)
+	if statusline[0] != "HTTP/1.1" {
+		fmt.eprintln("response: ", strs[0])
+		panic("not a valid HTTP 1.1 response")
+	}
+	// check status code
+	if statusline[1] != "200" {
+		fmt.eprintln("status: ", statusline[1], statusline[2])
+		panic("response code not OK")
+	}
+
+	if length < 2 { // TODO: better response handling
 		fmt.println(strs)
 		panic("unexpected response format")
 	}
-	data := transmute([]byte)strs[1]
+	data := transmute([]byte)strs[length-1]
 	r := b.decode(data, context.temp_allocator).(map[string]b.Value)
 	tracker.interval = r["interval"].(int)
 	tracker.peers = parse_peers(r["peers"].(string))
