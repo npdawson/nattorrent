@@ -34,7 +34,6 @@ open_file :: proc(filename: string) -> Torrent {
 	if bcode["announce"] != nil {
 		torrent.announce = bcode["announce"].(string)
 	}
-	// TODO : reimplement properly, list of list of strings, tiers
 	if bcode["announce-list"] != nil {
 		announce_list: [dynamic][]string
 		for tier in bcode["announce-list"].([]b.Value) {
