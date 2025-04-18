@@ -28,22 +28,6 @@ Tracker :: struct {
 	peers:		[]Peer,
 }
 
-gen_handshake :: proc(tracker: Tracker) -> []byte {
-	handshake: [dynamic]byte
-
-	pstr := "BitTorrent protocol"
-	pstr_len := cast(byte)len(pstr)
-	extensions: [8]byte = {0, 0, 0, 0, 0, 0, 0, 0}
-
-	append(&handshake, pstr_len)
-	append(&handshake, pstr)
-	append(&handshake, transmute(string)extensions[:])
-	append(&handshake, tracker.info_hash)
-	append(&handshake, tracker.peer_id)
-
-	return handshake[:]
-}
-
 url_encode :: proc(str: string, allocator := context.allocator) -> string {
 	b := strings.builder_make(allocator = allocator)
 	for i in 0 ..< len(str) {

@@ -86,6 +86,22 @@ parse_peer :: proc(peer: []byte) -> Peer {
 	return p
 }
 
+gen_handshake :: proc(tracker: Tracker) -> []byte {
+	handshake: [dynamic]byte
+
+	pstr := "BitTorrent protocol"
+	pstr_len := cast(byte)len(pstr)
+	extensions: [8]byte = {0, 0, 0, 0, 0, 0, 0, 0}
+
+	append(&handshake, pstr_len)
+	append(&handshake, pstr)
+	append(&handshake, transmute(string)extensions[:])
+	append(&handshake, tracker.info_hash)
+	append(&handshake, tracker.peer_id)
+
+	return handshake[:]
+}
+
 parse_handshake :: proc(hs: []byte) -> (infohash: string, peerid: string, err: string) {
 	pstr_len := hs[0]
 	pstr_end := pstr_len + 1
