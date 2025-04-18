@@ -93,13 +93,15 @@ open :: proc(filename: string) -> Torrent {
     if bcode["announce"] != nil {
         torrent.announce = bcode["announce"].(string)
     }
-    if bcode["announce-list"] != nil {
-        announce_list: [dynamic]string
-        for announce in bcode["announce-list"].([]b.Value) {
-            append(&announce_list, announce.(string))
-        }
-        torrent.announce_list = announce_list[:]
-    }
+    // TODO : reimplement properly, list of list of strings, tiers
+    // if bcode["announce-list"] != nil {
+    //     announce_list: [dynamic]string
+    //     fmt.println(bcode["announce-list"].([]b.Value))
+    //     for announce in bcode["announce-list"].([]b.Value) {
+    //         append(&announce_list, announce.(string))
+    //     }
+    //     torrent.announce_list = announce_list[:]
+    // }
     if bcode["url-list"] != nil {
         url_list: [dynamic]string
         for url in bcode["url-list"].([]b.Value) {
