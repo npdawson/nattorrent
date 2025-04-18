@@ -46,6 +46,7 @@ main :: proc() {
 
 		// initial announce
 		tracker_announce(&tracker)
+		tracker.state = .Active
 
 		// and response
 		tracker_response(&tracker)
