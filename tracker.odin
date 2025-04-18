@@ -78,7 +78,7 @@ tracker_init :: proc(torrent: ^Torrent) -> (tracker: Tracker, err: net.Network_E
 	}
 	tracker.path = path
 	endpoint := net.resolve_ip4(host) or_return
-	if endpoint.port == 0 { endpoint.port = 80 }
+	if endpoint.port == 0 { endpoint.port = 80 } // TODO: confirm what the default port should be for trackers
 	// do I need to keep the endpoint after connecting?
 	tracker.socket = net.dial_tcp(endpoint) or_return
 	tracker.info_hash = transmute(string)torrent.info_hash[:]
