@@ -55,7 +55,7 @@ main :: proc() {
 		// start listening for peer messages
 		listen_ep := net.Endpoint {
 			address = net.IP4_Any,
-			port = 6881,
+			port    = 6881,
 		}
 		listen_sock: net.TCP_Socket
 		listen_sock, err = net.listen_tcp(listen_ep)
@@ -77,7 +77,14 @@ main :: proc() {
 
 			bytes_sent, err = net.send_tcp(peer.socket, handshake)
 			if bytes_sent != len(handshake) || err != nil {
-				fmt.eprintln("failed sending handshake to peer", peer.endpoint, "bytes sent:", bytes_sent, "err:", err)
+				fmt.eprintln(
+					"failed sending handshake to peer",
+					peer.endpoint,
+					"bytes sent:",
+					bytes_sent,
+					"err:",
+					err,
+				)
 			}
 		}
 

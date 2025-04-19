@@ -2,8 +2,8 @@ package nattorrent
 
 import "core:crypto/hash"
 import "core:fmt"
-import "core:net"
 import "core:math/rand"
+import "core:net"
 import "core:strings"
 
 import b "../bencode"
@@ -11,13 +11,13 @@ import b "../bencode"
 BitField :: distinct []byte
 
 Peer :: struct {
-	endpoint:		 net.Endpoint,
-	socket:			 net.TCP_Socket,
-	am_choking:		 bool,
-	am_interested:	 bool,
-	peer_choking:	 bool,
+	endpoint:        net.Endpoint,
+	socket:          net.TCP_Socket,
+	am_choking:      bool,
+	am_interested:   bool,
+	peer_choking:    bool,
 	peer_interested: bool,
-	have:			 BitField,
+	have:            BitField,
 	// should I track peer download/upload rates here?
 }
 
@@ -111,7 +111,7 @@ parse_handshake :: proc(hs: []byte) -> (infohash: string, peerid: string, err: s
 		return
 	}
 	ext_end := pstr_end + 8
-	extensions := hs[pstr_end:ext_end]
+	_ = hs[pstr_end:ext_end]
 	ih_end := ext_end + 20
 	infohash = transmute(string)hs[ext_end:ih_end]
 	peerid = transmute(string)hs[ih_end:ih_end + 20]
@@ -129,4 +129,3 @@ set_piece :: proc(bf: ^BitField, index: uint) {
 	offset := index % 8
 	bf[byte_index] |= (1 << (7 - offset))
 }
-

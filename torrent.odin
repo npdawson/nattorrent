@@ -2,7 +2,6 @@ package nattorrent
 
 import "core:fmt"
 import "core:os"
-import "core:strings"
 
 import b "../bencode"
 

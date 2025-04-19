@@ -25,7 +25,7 @@ gen_msg :: proc(id: messageID, payload: []byte) -> []byte {
 
 	length: u32 = cast(u32)len(payload) + 1
 	len_bytes: [4]byte
-	ok := endian.put_u32(len_bytes[:], .Big, length)
+	_ = endian.put_u32(len_bytes[:], .Big, length)
 	append_elems(&msg, ..len_bytes[:])
 
 	append(&msg, cast(byte)id)
@@ -52,4 +52,3 @@ parse_msg :: proc(data: []byte) -> (msg: Message, err: string) {
 	}
 	return
 }
-
