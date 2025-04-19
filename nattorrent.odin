@@ -2,6 +2,7 @@ package nattorrent
 
 import "core:fmt"
 import "core:mem"
+import "core:net"
 import "core:os"
 
 main :: proc() {
@@ -50,6 +51,18 @@ main :: proc() {
 
 		// and response
 		tracker_response(&tracker)
+
+		// start listening for peer messages
+		listen_ep := net.Endpoint {
+			address = net.IP4_Any,
+			port = 6881,
+		}
+		listen_sock: net.TCP_Socket
+		listen_sock, err = net.listen_tcp(listen_ep)
+		if err != nil {
+			fmt.eprintln("Listen socket error: ", err)
+			panic("could not open socket for incoming messages")
+		}
 
 		// handshake to send peers upon connecting
 		handshake := gen_handshake(tracker)
