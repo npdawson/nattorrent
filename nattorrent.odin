@@ -67,6 +67,19 @@ main :: proc() {
 		// handshake to send peers upon connecting
 		handshake := gen_handshake(tracker)
 		defer delete(handshake)
+		bytes_sent: int
+
+		for &peer in tracker.peers {
+			peer.socket, err = net.dial_tcp(peer.endpoint)
+			if err != nil {
+				fmt.eprintln("Could not connect to peer", peer.endpoint, " error:", err)
+			}
+
+			bytes_sent, err = net.send_tcp(peer.socket, handshake)
+			if bytes_sent != len(handshake) || err != nil {
+				fmt.eprintln("failed sending handshake to peer", peer.endpoint, "bytes sent:", bytes_sent, "err:", err)
+			}
+		}
 
 		// when stopping, inform the tracker
 		tracker.state = .Stopped
