@@ -14,10 +14,13 @@ Torrent :: struct {
 	announce_list: [][]string,
 	info_hash:     [20]byte, // hash of the info dict within the torrent file
 	length:        int, // size of the file in bytes
+	left:		   int, // bytes left until 100% of files are downloaded
 	name:          string, // suggested filename/folder name
 	piece_length:  int, // bytes per piece
 	pieces:        [][20]u8, // SHA-1 hashes for each piece
 	url_list:      []string, // list of HTTP URLs for HTTP seeds
+	peer_id:	   string,
+	peers:		   []Peer,
 }
 
 open_file :: proc(filename: string) -> Torrent {
@@ -55,6 +58,7 @@ open_file :: proc(filename: string) -> Torrent {
 	torrent.info_hash = info_hash(info_map)
 	torrent.name = info_map["name"].(string)
 	torrent.length = info_map["length"].(int)
+	torrent.left = torrent.length
 	torrent.piece_length = info_map["piece length"].(int)
 	pieces: [dynamic][20]u8
 	pieces_str := transmute([]u8)info_map["pieces"].(string)
@@ -64,6 +68,7 @@ open_file :: proc(filename: string) -> Torrent {
 		append(&pieces, hash)
 	}
 	torrent.pieces = pieces[:]
+	torrent.peer_id = gen_peer_id(allocator = context.temp_allocator)
 
 	return torrent
 }

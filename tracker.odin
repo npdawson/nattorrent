@@ -7,7 +7,7 @@ import "core:strconv"
 
 import b "../bencode"
 
-TrackerState :: enum {
+Event :: enum {
 	Started,
 	Active,
 	Stopped,
@@ -15,17 +15,14 @@ TrackerState :: enum {
 }
 
 Tracker :: struct {
-	socket:		net.TCP_Socket,
+	endpoint:	net.Endpoint,
+	protocol:	string,
+	host:		string,
 	path:		string,
-	info_hash:	string,
-	peer_id:	string,
-	port:		string,
 	uploaded:	int,
 	downloaded: int,
-	left:		int,
-	state:		TrackerState,
+	state:		Event,
 	interval:	int,
-	peers:		[]Peer,
 }
 
 url_encode :: proc(str: string, allocator := context.allocator) -> string {
@@ -60,30 +57,25 @@ tracker_init :: proc(torrent: ^Torrent) -> (tracker: Tracker, err: net.Network_E
 		fmt.eprintln("unsupported protocol: ", protocol)
 		panic("could not initialize tracker")
 	}
+	tracker.endpoint = net.resolve_ip4(host) or_return
+	tracker.protocol = protocol
+	tracker.host, _, _ = net.split_port(host)
 	tracker.path = path
-	endpoint := net.resolve_ip4(host) or_return
-	if endpoint.port == 0 { endpoint.port = 80 } // TODO: confirm what the default port should be for trackers
-	// do I need to keep the endpoint after connecting?
-	tracker.socket = net.dial_tcp(endpoint) or_return
-	tracker.info_hash = transmute(string)torrent.info_hash[:]
-	tracker.peer_id = gen_peer_id(allocator = context.temp_allocator)
-	tracker.port = "6881"
 	tracker.uploaded = 0
 	tracker.downloaded = 0
-	// TODO: calculate .left based on how much of the file is already downloaded
-	tracker.left = torrent.length
 	tracker.state = .Started
 
 	return
 }
 
-tracker_announce :: proc(tracker: ^Tracker) {
+tracker_announce :: proc(tracker: ^Tracker, torrent: ^Torrent, port: int) -> (err: net.Network_Error) {
+	socket: net.TCP_Socket
+	socket, err = net.dial_tcp_from_endpoint(tracker.endpoint)
+	if err != nil {
+		fmt.eprintln("couldn't connect to tracker")
+		return
+	}
 	// how to handle change of state to stopped or completed?
-	req := strings.builder_make()
-	defer strings.builder_destroy(&req)
-	strings.write_string(&req, "GET /")
-	strings.write_string(&req, tracker.path)
-	strings.write_rune(&req, '?')
 	event: string
 	switch tracker.state {
 	case .Started:
@@ -96,55 +88,50 @@ tracker_announce :: proc(tracker: ^Tracker) {
 	case .Completed:
 		event = "completed"
 	}
-	escaped_infohash := url_encode(tracker.info_hash)
-	defer delete(escaped_infohash)
-	escaped_peerid := url_encode(tracker.peer_id)
-	defer delete(escaped_peerid)
-	params := strings.concatenate(
+
+	info_hash := transmute(string)torrent.info_hash[:]
+	escaped_infohash := url_encode(info_hash, context.temp_allocator)
+	escaped_peerid := url_encode(torrent.peer_id, context.temp_allocator)
+	request_string := strings.concatenate(
 		{
-			"info_hash=",
+			"GET /",
+			tracker.path,
+			"?info_hash=",
 			escaped_infohash,
-			"&",
-			"peer_id=",
+			"&peer_id=",
 			escaped_peerid,
-			"&",
-			"port=",
-			tracker.port,
-			"&",
-			"uploaded=",
+			"&port=",
+			fmt.tprint(port),
+			"&uploaded=",
 			fmt.tprint(tracker.uploaded),
-			"&",
-			"downloaded=",
+			"&downloaded=",
 			fmt.tprint(tracker.downloaded),
-			"&",
-			"left=",
-			fmt.tprint(tracker.left),
-			"&",
-			"compact=1&",
-			"event=",
+			"&left=",
+			fmt.tprint(torrent.left),
+			"&compact=1",
+			"&event=",
 			event,
+			" HTTP/1.1\r\n",
+			"Host:",
+			tracker.host,
+			"\r\n\r\n",
 		},
+		context.temp_allocator
 	)
-	defer delete(params)
-	strings.write_string(&req, params)
-	strings.write_string(&req, " HTTP/1.1\r\n")
 
-	strings.write_string(&req, "\r\n")
-	req_str := strings.to_string(req)
-	req_bytes := transmute([]byte)req_str
-	bytes, err := net.send_tcp(tracker.socket, req_bytes)
+	request_bytes := transmute([]byte)request_string
+	bytes: int
+	bytes, err = net.send_tcp(socket, request_bytes)
 	if err != nil {
-		fmt.println("announce error:", err, "bytes sent:", bytes)
-		panic("could not announce to tracker")
+		fmt.eprintln("Error announcing to tracker:", tracker.host, " | bytes sent:", bytes)
+		return
 	}
-}
 
-tracker_response :: proc(tracker: ^Tracker) {
-	response: [1000]byte
-	bytes, err := net.recv_tcp(tracker.socket, response[:])
+	response := make_slice([]byte, 2000, context.temp_allocator)
+	bytes, err = net.recv_tcp(socket, response[:])
 	if err != nil {
-		fmt.println("Response err: ", err)
-		panic("error receiving response from tracker")
+		fmt.eprintln("Error receiving response from tracker:", tracker.host)
+		return
 	}
 	if bytes == 0 do return
 	strs, _ := strings.split(transmute(string)response[:bytes], "\r\n")
@@ -159,7 +146,7 @@ tracker_response :: proc(tracker: ^Tracker) {
 	}
 	// check status code
 	if statusline[1] != "200" {
-		fmt.eprintln("status: ", statusline[1], statusline[2])
+		fmt.eprintln("status:", statusline[1], statusline[2])
 		panic("response code not OK")
 	}
 
@@ -170,16 +157,19 @@ tracker_response :: proc(tracker: ^Tracker) {
 	data := transmute([]byte)strs[length-1]
 	r := b.decode(data, context.temp_allocator).(map[string]b.Value)
 	tracker.interval = r["interval"].(int)
-	tracker.peers = parse_peers(r["peers"].(string))
+	// TODO: add peers to list rather than replace
+	torrent.peers = parse_peers(r["peers"].(string))
 
 	// print out for debugging
 	fmt.println("Interval: ", tracker.interval, " seconds")
-	for peer in tracker.peers {
+	for peer in torrent.peers {
 		fmt.println(peer.endpoint.address, ":", peer.endpoint.port, sep = "")
 	}
+
+	net.close(socket)
+	free_all(context.temp_allocator)
+	return nil
 }
 
 tracker_destroy :: proc(tracker: Tracker) {
-	delete(tracker.peers)
-	net.close(tracker.socket)
 }
